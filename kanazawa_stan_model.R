@@ -90,26 +90,62 @@ kanazawa_fit <- date_master
 date_master_pred <- subset(date_master, date >= as.Date('2015-06-01') & date <= as.Date('2015-11-30'))
 date_master_pred$visit <- 0 
 kanazawa_all <- rbind(subset(kanazawa, select=-c(variable, jis)), date_master_pred)
+toyama_all <- rbind(subset(toyama, select=-c(variable, jis)), date_master_pred)
 
 T <- nrow(kanazawa)
 T_next <- nrow(date_master_pred) 
-data <- list(T=T, T_next=T_next, Y=kanazawa_all$visit[1:T], D1=kanazawa_all$D1, D2=kanazawa_all$D2, wday=kanazawa_all$wday,
+data <- list(T=T, T_next=T_next, Y=log(kanazawa_all$visit[1:T]), D1=kanazawa_all$D1, D2=kanazawa_all$D2, wday=kanazawa_all$wday,
              shinkansen=kanazawa_all$shinkansen)
 rstan_options(auto_write=TRUE)
 options(mc.cores=parallel::detectCores())
 
 stanmodel_fcst <- stan_model(file='model_trend_season_with_forecast.stan')
+t1 <- proc.time()
 fit_kanazawa_stan1 <- sampling(
   stanmodel_fcst, data=data,
-  iter=100, warmup=50, chains=1, seed=123
+  iter=11000, warmup=1000, chains=4, seed=123
 )
-traceplot(fit_kanazawa_stan1, pars=c("s_ar","s_mu","s_s", "s_r"))
+t2 <- proc.time()
+t2-t1 
+#traceplot(fit_kanazawa_stan1, pars=c("s_ar","s_mu","s_s", "s_r"))
 print(fit_kanazawa_stan1, pars=c('s_ar','s_mu','s_s','s_r'))
-pairs(fit_kanazawa_stan1, pars=c('s_ar','s_mu','s_s','s_r'))
+pairs(fit_kanazawa_stan1, pars=c('s_ar','s_mu','s_s','s_r','b1','b2','b3','c_shinkansen'))
 la <- extract(fit_kanazawa_stan1)
-visit_forecast <- data.frame(date=date_master$date[(T+1):(T+T_next)], visit=apply(la$y_next, 2, median))
-ggplot(visit_forecast, aes(x=date, y=visit)) + geom_line()
+# visit_forecast <- data.frame(date=date_master$date[(T+1):(T+T_next)], visit=apply(la$y_next, 2, median))
+# ggplot(visit_forecast, aes(x=date, y=visit)) + geom_line()
+fit_final_kanazawa <- data.frame(date=kanazawa_all$date, visit=kanazawa_all$visit, fcst=exp(apply(la$visit_all, 2, median)), 
+	upper=exp(apply(la$visit_all, 2, function(x)quantile(x,0.75))),lower=exp(apply(la$visit_all, 2, function(x)quantile(x,0.25))))
+
+##############
+## Toyama ####
+data_toyama <- list(T=T, T_next=T_next, Y=log(toyama_all$visit[1:T]), D1=toyama_all$D1, D2=toyama_all$D2, wday=toyama_all$wday,
+             shinkansen=toyama_all$shinkansen)
+rstan_options(auto_write=TRUE)
+options(mc.cores=parallel::detectCores())
+
+stanmodel_fcst <- stan_model(file='model_trend_season_with_forecast.stan')
+t1 <- proc.time()
+fit_toyama_stan1 <- sampling(
+  stanmodel_fcst, data=data,
+  iter=11000, warmup=1000, chains=4, seed=123
+)
+t2 <- proc.time()
+t2-t1 
+#traceplot(fit_toyama_stan1, pars=c("s_ar","s_mu","s_s", "s_r"))
+print(fit_toyama_stan1, pars=c('s_ar','s_mu','s_s','s_r'))
+pairs(fit_toyama_stan1, pars=c('s_ar','s_mu','s_s','s_r','b1','b2','b3','c_shinkansen'))
+la <- extract(fit_toyama_stan1)
+# visit_forecast <- data.frame(date=date_master$date[(T+1):(T+T_next)], visit=apply(la$y_next, 2, median))
+# ggplot(visit_forecast, aes(x=date, y=visit)) + geom_line()
+fit_final_toyama <- data.frame(date=toyama_all$date, visit=toyama_all$visit, fcst=exp(apply(la$visit_all, 2, median)), 
+	upper=exp(apply(la$visit_all, 2, function(x)quantile(x,0.75))),lower=exp(apply(la$visit_all, 2, function(x)quantile(x,0.25))))
+
+	
+	
+# ggplot(subset(toyama, date>=as.Date('2015-02-01') & date<=as.Date('2015-02-28')), aes(x=date, y=visit)) + geom_line()
 
 
+# toyama %>% select(date, visit) %>% arrange(desc(visit)) %>% head(10)
 
-
+	
+ggplot(fit_final_toyama, aes(x=date)) + geom_line(aes(y=visit)) + geom_line(aes(y=fcst), linetype=2)
