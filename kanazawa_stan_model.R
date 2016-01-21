@@ -86,5 +86,30 @@ kanazawa_fit <- data.frame(mu=mu_med$value, s=s_med$value, ar=ar_med$value,
 kanazawa_fit <- date_master
 
 
+### Add prediction
+date_master_pred <- subset(date_master, date >= as.Date('2015-06-01') & date <= as.Date('2015-11-30'))
+date_master_pred$visit <- 0 
+kanazawa_all <- rbind(subset(kanazawa, select=-c(variable, jis)), date_master_pred)
+
+T <- nrow(kanazawa)
+T_next <- nrow(date_master_pred) 
+data <- list(T=T, T_next=T_next, Y=kanazawa_all$visit[1:T], D1=kanazawa_all$D1, D2=kanazawa_all$D2, wday=kanazawa_all$wday,
+             shinkansen=kanazawa_all$shinkansen)
+rstan_options(auto_write=TRUE)
+options(mc.cores=parallel::detectCores())
+
+stanmodel_fcst <- stan_model(file='model_trend_season_with_forecast.stan')
+fit_kanazawa_stan1 <- sampling(
+  stanmodel_fcst, data=data,
+  iter=100, warmup=50, chains=1, seed=123
+)
+traceplot(fit_kanazawa_stan1, pars=c("s_ar","s_mu","s_s", "s_r"))
+print(fit_kanazawa_stan1, pars=c('s_ar','s_mu','s_s','s_r'))
+pairs(fit_kanazawa_stan1, pars=c('s_ar','s_mu','s_s','s_r'))
+la <- extract(fit_kanazawa_stan1)
+visit_forecast <- data.frame(date=date_master$date[(T+1):(T+T_next)], visit=apply(la$y_next, 2, median))
+ggplot(visit_forecast, aes(x=date, y=visit)) + geom_line()
+
+
 
 
